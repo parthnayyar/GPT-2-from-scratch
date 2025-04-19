@@ -318,7 +318,7 @@ for i in range(max_steps):
             for _ in range(val_loss_steps):
                 x, y = val_loader.next_batch()
                 x, y = x.to(DEVICE), y.to(DEVICE)
-                with torch.autocast(device=DEVICE, dtype=torch.bfloat16):
+                with torch.autocast(device_type=DEVICE, dtype=torch.bfloat16):
                     logits, loss = model(x, y)
                 loss /= val_loss_steps
                 val_loss_accum += loss.detach()
@@ -370,7 +370,7 @@ for i in range(max_steps):
     for micro_step in range(grad_accumulation_steps):
         x, y = train_loader.next_batch()
         x, y = x.to(DEVICE), y.to(DEVICE)
-        with torch.autocast(device=DEVICE, dtype=torch.bfloat16):
+        with torch.autocast(device_type=DEVICE, dtype=torch.bfloat16):
             logits, loss = model(x, y)
         loss /= grad_accumulation_steps
         loss_accum += loss.detach()
@@ -387,7 +387,7 @@ for i in range(max_steps):
     torch.cuda.synchronize()
     t1 = time.time()
     dt = (t1 - t0)
-    tokens_per_sec = train_loader.B * train_loader.T * grad_accumulation_steps * ddp_world_size / dt
+    tokens_per_sec = B * T * grad_accumulation_steps * ddp_world_size / dt
     if master_process:
         print(f"step {i:4d} | loss: {loss_accum.item():.6f} | lr: {lr:.4e} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tokens/sec: {tokens_per_sec:.2f}")
         with open(log_file, "a") as f:

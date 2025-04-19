@@ -6,6 +6,9 @@ import time
 import os
 
 
+dataset = "fineweb"
+
+
 ddp = int(os.environ.get("RANK", -1)) != -1
 if ddp:
     assert torch.cuda.is_available()
@@ -29,9 +32,14 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(42)
 
 
-total_batch_size = 524288 # (closest power of 2 to 0.5mil, 2**19)
-B = 64 # micro batch size
-T = 1024 # sequence length
+# total_batch_size = 524288 # (closest power of 2 to 0.5mil, 2**19)
+# B = 64 # micro batch size
+# T = 1024 # sequence length
+
+total_batch_size = 64
+B = 2 # micro batch size
+T = 4 # sequence length
+
 assert total_batch_size % (B*T*ddp_world_size) == 0
 grad_accumulation_steps = total_batch_size // (B*T*ddp_world_size) 
 if master_process:
@@ -52,7 +60,7 @@ max_lr = 6e-4
 min_lr = max_lr * 0.1
 warmup_steps = 715 # 375e6 / 2**19 as per GPT-3
 n_epochs = 1
-max_steps = len(GPT2Dataset(B=B, T=T, world_size=ddp_world_size, process_rank=0, split="train"))
+max_steps = len(GPT2Dataset(B=B, T=T, world_size=ddp_world_size, process_rank=0, split="train", dataset=dataset))
 
 
 def get_lr(i):
@@ -80,7 +88,8 @@ val_loader = torch.utils.data.DataLoader(
         T=T, 
         world_size=ddp_world_size, 
         process_rank=ddp_local_rank, 
-        split="val"
+        split="val",
+        dataset=dataset
     ),
     shuffle=True
 )
@@ -97,7 +106,8 @@ for epoch in range(n_epochs):
             T=T, 
             world_size=ddp_world_size, 
             process_rank=ddp_local_rank, 
-            split="train"
+            split="train",
+            dataset=dataset
         ),
         shuffle=True
     )
@@ -123,7 +133,8 @@ for epoch in range(n_epochs):
                                 T=T, 
                                 world_size=ddp_world_size, 
                                 process_rank=ddp_local_rank, 
-                                split="val"
+                                split="val",
+                                dataset=dataset
                             ),
                             shuffle=True
                         )
@@ -141,7 +152,7 @@ for epoch in range(n_epochs):
                 print(f"step {n_steps} | val loss {val_loss_accum.item():.4f}")
 
         
-        if master_process and (n_steps % 5000 == 0 or n_steps == len(train_loader) - 1):
+        if master_process and n_steps > 0 and (n_steps % 5000 == 0 or n_steps == len(train_loader) - 1):
             checkpoint_path = os.path.join(log_dir, f"model_{n_steps}.pt")
             checkpoint = {
                 "model": raw_model.state_dict(),
@@ -167,7 +178,7 @@ for epoch in range(n_epochs):
 
             x_train, y_train = next(train_it)
             x_train, y_train = x_train.squeeze(0).to(DEVICE), y_train.squeeze(0).to(DEVICE)
-            with torch.autocast(device=DEVICE, dtype=torch.bfloat16):
+            with torch.autocast(device_type=DEVICE, dtype=torch.bfloat16):
                 logits, loss = model(x_train, y_train)
             loss /= grad_accumulation_steps
             loss_accum += loss.detach()
@@ -188,7 +199,7 @@ for epoch in range(n_epochs):
         torch.cuda.synchronize()
         t1 = time.time()
         dt = (t1 - t0)
-        tokens_per_sec = train_loader.B * train_loader.T * grad_accumulation_steps * ddp_world_size / dt
+        tokens_per_sec = B * T * grad_accumulation_steps * ddp_world_size / dt
 
         if master_process:
             print(f"step {n_steps:4d} | train_loss: {loss_accum.item():.6f} | val_loss: {val_loss_accum.item():.6f} | lr: {lr:.4e} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tokens/sec: {tokens_per_sec:.2f}")

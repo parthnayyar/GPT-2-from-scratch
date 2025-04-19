@@ -1,3 +1,4 @@
-pip3 install torch torchvision torchaudio
-conda install conda-forge::transformers conda-forge::datasets conda-forge::tiktoken tqdm requests matplotlib -y
+pip install torch torchvision torchaudio transformers datasets tiktoken tqdm matplotlib
+sudo apt-get update
+sudo apt-get install -y build-essential
 torchrun --standalone --nproc_per_node=8 train.py
