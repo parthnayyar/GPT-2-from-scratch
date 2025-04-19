@@ -32,13 +32,13 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(42)
 
 
-# total_batch_size = 524288 # (closest power of 2 to 0.5mil, 2**19)
-# B = 64 # micro batch size
-# T = 1024 # sequence length
+total_batch_size = 524288 # (closest power of 2 to 0.5mil, 2**19)
+B = 64 # micro batch size
+T = 1024 # sequence length
 
-total_batch_size = 64
-B = 2 # micro batch size
-T = 4 # sequence length
+# total_batch_size = 64
+# B = 2 # micro batch size
+# T = 4 # sequence length
 
 assert total_batch_size % (B*T*ddp_world_size) == 0
 grad_accumulation_steps = total_batch_size // (B*T*ddp_world_size) 
