@@ -30,8 +30,8 @@ if torch.cuda.is_available():
 
 
 total_batch_size = 524288 # (closest power of 2 to 0.5mil, 2**19)
-B = 2 # micro batch size
-T = 4 # sequence length
+B = 64 # micro batch size
+T = 1024 # sequence length
 assert total_batch_size % (B*T*ddp_world_size) == 0
 grad_accumulation_steps = total_batch_size // (B*T*ddp_world_size) 
 if master_process:
@@ -43,7 +43,7 @@ torch.set_float32_matmul_precision("high")
 
 model: GPT2 = GPT2(GPTConfig(vocab_size=50304))
 model.to(DEVICE)
-# model = torch.compile(model)
+model = torch.compile(model)
 if ddp:
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[ddp_local_rank])
 raw_model = model.module if ddp else model
@@ -150,6 +150,7 @@ for epoch in range(n_epochs):
                 "step": n_steps,
                 "val_loss": val_loss_accum.item()
             }
+            torch.save(checkpoint, checkpoint_path)
 
         
         optimizer.zero_grad(set_to_none=True)

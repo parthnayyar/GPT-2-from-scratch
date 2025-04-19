@@ -362,6 +362,7 @@ for i in range(max_steps):
             "step": i,
             "val_loss": val_loss_accum.item()
         }
+        torch.save(checkpoint, checkpoint_path)
 
     
     optimizer.zero_grad(set_to_none=True)
