@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 class GPT2Dataset(torch.utils.data.Dataset):
-    def __init__(self, B: int, T: int, world_size: int, process_rank: int, split: Literal["train", "val"]):
+    def __init__(self, B: int, T: int, world_size: int, process_rank: int, split: Literal["train", "val"], dataset: Literal["shakespeare", "fineweb"]="fineweb"):
         super().__init__()
         self.B = B
         self.T = T
@@ -11,7 +11,9 @@ class GPT2Dataset(torch.utils.data.Dataset):
         self.world_size = world_size
 
         assert split in ["train", "val"]
-        self.data = np.memmap(f"{split}.bin", dtype=np.uint16, mode="r")
+        assert dataset in ["shakespeare", "fineweb"]
+
+        self.data = np.memmap(f"{split}.bin", dtype=np.uint16, mode="r") if dataset == "fineweb" else np.load(f"shakespeare_{split}.npy")
     
     def __len__(self):
         B, T = self.B, self.T
