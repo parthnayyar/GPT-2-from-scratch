@@ -1,0 +1,46 @@
+time improvements in pre training:
+1. use torch.set_float32_matmul_precision("high"):
+    - use tf32 fp in pytorch internal matmul operations
+    - reduces precision from 23 to 10 bits
+    - this change is local to the internal matmul operations
+    - around 1000ms to 333ms in throuput
+2. use context manager torch.autocast(device=DEVICE, dtype=torch.bfloat16) for forward pass:
+    - this uses bfloat16 fp for all tensors in context managers
+    - actually impacts the tensors
+    - Reduces precision from 23 to 7 bits
+    - Only some layers get autocasted
+    - around 333ms to 300ms in throuput
+3. use model = torch.compile(model)
+    - torch.compile know what ops to run in future (unlike python interpreter which is in runtime)
+    - compiles entire neural net as a single object without any python interpreter involved
+    - reduces gpu memory reads/writes reducing memory bandwidth costs
+    - around 300ms to 130ms in throuput
+4. implement flash attention:
+    - attention is not optimized by torch.compile if implemented naively
+    - around 130ms to 97ms in throuput
+5. write in powers of 2:
+    - lot of cuda kernels are written in powers of 2
+    - scan code and look for "ugly numbers" (not even, prime, not powers of 2, etc.)
+    - 50257 (vocab size) is a very ugly number
+    - instead 50304 is much nicers (divisible by lots of powers of 2, e.g divisible up to 128)
+    - this just adds "fake tokens"
+    - this increases the flops but cuda is written blocks of size power of 2s and when desired calculation doesnt fit in this block, there is a lot of extra inefficient processing
+    - around 97ms to 93ms in throuput
+6. set fused=True for Adam optimizer:
+    - fuses all the weight updates into 1 kernel call
+    - around 93ms to 90ms throuput
+
+
+algorithmic improvements:
+1. gradient norm clipping:
+    - prevents getting too much loss/gradient from outlier batches
+2. lr decay
+    - use lr decay as stated in gpt 3 paper
+3. training data/batches sampled without replacement
+4. use weight decay to provide small amt of regularization
+    - only decaying weights participating in matmul and embedding ops
+
+Future improvements:
+dataloader shuffling
+2-3X max_lr
+increase context length
