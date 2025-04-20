@@ -1,2 +1,4 @@
 *.bin
 *.pt
+*/__pycache__
+*.ipynb
