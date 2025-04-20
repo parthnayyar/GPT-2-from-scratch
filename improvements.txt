@@ -1,4 +1,4 @@
-time improvements in pre training:
+Time improvements in pre-training:
 1. use torch.set_float32_matmul_precision("high"):
     - use tf32 fp in pytorch internal matmul operations
     - reduces precision from 23 to 10 bits
@@ -31,7 +31,7 @@ time improvements in pre training:
     - around 93ms to 90ms throuput
 
 
-algorithmic improvements:
+Algorithmic improvements:
 1. gradient norm clipping:
     - prevents getting too much loss/gradient from outlier batches
 2. lr decay
@@ -40,7 +40,11 @@ algorithmic improvements:
 4. use weight decay to provide small amt of regularization
     - only decaying weights participating in matmul and embedding ops
 
-Future improvements:
-dataloader shuffling
+Improvements over Andrej's video:
+1. Implementing dataset module inheriting from [torch.utils.data.Dataset]()
+2. Using torch's dataloader allowing us to shuffle data 
+4. Faster implementation of downloading the fineweb dataset
+
+Potential future improvements:
 2-3X max_lr
 increase context length

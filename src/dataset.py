@@ -13,13 +13,11 @@ class GPT2Dataset(torch.utils.data.Dataset):
         assert split in ["train", "val"]
         assert dataset in ["shakespeare", "fineweb"]
 
-        self.data = np.memmap(f"{split}.bin", dtype=np.uint16, mode="r") if dataset == "fineweb" else np.load(f"shakespeare_{split}.npy")
+        self.data = np.memmap(f"data/{split}.bin", dtype=np.uint16, mode="r") if dataset == "fineweb" else np.load(f"data/shakespeare_{split}.npy")
     
     def __len__(self):
         B, T = self.B, self.T
-        quotient = (len(self.data)-1)//(B*T*self.world_size)
-        remainder = (len(self.data)-1)%(B*T*self.world_size)
-        return quotient+1 if (self.process_rank+1)*B*T <= remainder else quotient
+        return (len(self.data)-1)//(B*T*self.world_size)
     
     def __getitem__(self, idx):
         B, T = self.B, self.T

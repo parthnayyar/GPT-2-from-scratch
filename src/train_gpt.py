@@ -1,5 +1,5 @@
-from dataset import GPT2Dataset
-from model import GPT2, GPTConfig
+from src.dataset import GPT2Dataset
+from src.model import GPT2, GPTConfig
 import torch
 import math
 import time
@@ -7,6 +7,15 @@ import os
 
 
 dataset = "fineweb"
+total_batch_size = 524288 # (closest power of 2 to 0.5mil, 2**19)
+B = 64 # micro batch size
+T = 1024 # sequence length
+
+# uncomment for testing on smaller dataset
+# dataset = "shakespeare"
+# total_batch_size = 4096
+# B = 16 # micro batch size
+# T = 16 # sequence length
 
 
 ddp = int(os.environ.get("RANK", -1)) != -1
@@ -30,15 +39,7 @@ else:
 torch.manual_seed(42)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(42)
-
-
-total_batch_size = 524288 # (closest power of 2 to 0.5mil, 2**19)
-B = 64 # micro batch size
-T = 1024 # sequence length
-
-# total_batch_size = 64
-# B = 2 # micro batch size
-# T = 4 # sequence length
+    
 
 assert total_batch_size % (B*T*ddp_world_size) == 0
 grad_accumulation_steps = total_batch_size // (B*T*ddp_world_size) 
@@ -51,16 +52,16 @@ torch.set_float32_matmul_precision("high")
 
 model: GPT2 = GPT2(GPTConfig(vocab_size=50304))
 model.to(DEVICE)
-model = torch.compile(model)
 if ddp:
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[ddp_local_rank])
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[ddp_local_rank], broadcast_buffers=False)
+model = torch.compile(model)
 raw_model = model.module if ddp else model
 
 max_lr = 6e-4
 min_lr = max_lr * 0.1
 warmup_steps = 715 # 375e6 / 2**19 as per GPT-3
 n_epochs = 1
-max_steps = len(GPT2Dataset(B=B, T=T, world_size=ddp_world_size, process_rank=0, split="train", dataset=dataset))
+max_steps = n_epochs*len(GPT2Dataset(B=B, T=T, world_size=ddp_world_size, process_rank=0, split="train", dataset=dataset))
 
 
 def get_lr(i):
@@ -152,7 +153,7 @@ for epoch in range(n_epochs):
                 print(f"step {n_steps} | val loss {val_loss_accum.item():.4f}")
 
         
-        if master_process and n_steps > 0 and (n_steps % 5000 == 0 or n_steps == len(train_loader) - 1):
+        if master_process and n_steps > 0 and n_steps % 5000 == 0:
             checkpoint_path = os.path.join(log_dir, f"model_{n_steps}.pt")
             checkpoint = {
                 "model": raw_model.state_dict(),
@@ -161,6 +162,7 @@ for epoch in range(n_epochs):
                 "step": n_steps,
                 "val_loss": val_loss_accum.item()
             }
+            print(f"saving checkpoint at step {n_steps}")
             torch.save(checkpoint, checkpoint_path)
 
         
@@ -176,7 +178,6 @@ for epoch in range(n_epochs):
                 epoch_done = True
                 break
 
-            x_train, y_train = next(train_it)
             x_train, y_train = x_train.squeeze(0).to(DEVICE), y_train.squeeze(0).to(DEVICE)
             with torch.autocast(device_type=DEVICE, dtype=torch.bfloat16):
                 logits, loss = model(x_train, y_train)
@@ -207,6 +208,48 @@ for epoch in range(n_epochs):
                 f.write(f"{n_steps},{loss_accum.item()},{val_loss_accum.item()}\n")
 
         n_steps += 1
+
+with torch.no_grad():
+    val_loss_accum = 0.0
+    val_loss_steps = 50
+    for _ in range(val_loss_steps):
+
+        try:
+            x_val, y_val = next(val_it)
+        except StopIteration:
+            val_loader = torch.utils.data.DataLoader(
+                GPT2Dataset(
+                    B=B, 
+                    T=T, 
+                    world_size=ddp_world_size, 
+                    process_rank=ddp_local_rank, 
+                    split="val",
+                    dataset=dataset
+                ),
+                shuffle=True
+            )
+            val_it = iter(val_loader)
+            x_val, y_val = next(val_it)
+
+        x_val, y_val = x_val.squeeze(0).to(DEVICE), y_val.squeeze(0).to(DEVICE)
+        with torch.autocast(device_type=DEVICE, dtype=torch.bfloat16):
+            logits, loss = model(x_val, y_val)
+        loss /= val_loss_steps
+        val_loss_accum += loss.detach()
+if ddp:
+    torch.distributed.all_reduce(val_loss_accum, op=torch.distributed.ReduceOp.AVG) # average val loss accross all processes
+
+if master_process:
+    print(f"final val loss: {val_loss_accum.item()}")
+    checkpoint = {
+        "model": raw_model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "config": raw_model.config,
+        "step": n_steps,
+        "val_loss": val_loss_accum.item()
+    }
+    print(f"saving checkpoint at step {n_steps}")
+    torch.save(checkpoint, os.path.join(log_dir, "model_final.pt"))
 
 if ddp:
     torch.distributed.destroy_process_group()
